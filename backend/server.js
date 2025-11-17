@@ -1,0 +1,81 @@
+// server.js (or app.js)
+
+const express = require('express');
+const dotenv = require('dotenv');
+const connectDB = require('./config/db'); // Import the connection function
+const clientRoutes = require('./routes/clientRoutes');
+const staffRoutes = require('./routes/staffRoutes');
+const baseServiceRoutes = require('./routes/baseServiceRoutes');
+const serviceVariationRoutes = require('./routes/serviceVariationRoutes');
+const appointmentRoutes = require('./routes/appointmentRoutes');
+const membershipTierRoutes = require('./routes/membershipTierRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const authRoutes = require('./routes/authRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+const messageRoutes = require('./routes/messageRoutes');
+const http = require('http');
+const { Server } = require('socket.io');
+
+// Load environment variables
+dotenv.config();
+
+// 1. Execute the connection function
+connectDB(); 
+
+const app = express();
+const server = http.createServer(app);
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(express.json()); // Body parser for JSON
+app.use(express.urlencoded({ extended: true })); // Body parser for URL-encoded
+
+// CORS middleware
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Serve uploads folder for PDF bills
+app.use('/uploads', express.static('uploads'));
+
+// Routes
+app.get('/', (req, res) => {
+  res.send('Server is running and attempting to connect to MongoDB...');
+});
+
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/clients', clientRoutes);
+app.use('/api/staff', staffRoutes);
+app.use('/api/base-services', baseServiceRoutes);
+app.use('/api/service-variations', serviceVariationRoutes);
+app.use('/api/appointments', appointmentRoutes);
+app.use('/api/membership-tiers', membershipTierRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/chats', chatRoutes);
+app.use('/api', messageRoutes);
+
+// Initialize Socket.io
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || 'http://localhost:8080',
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// Socket.io authentication and event handlers
+require('./socket/socketServer')(io);
+
+server.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Socket.io server is running on http://localhost:${PORT}`);
+});
