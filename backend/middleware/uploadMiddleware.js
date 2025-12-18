@@ -37,14 +37,16 @@ const fileFilter = (req, file, cb) => {
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/plain',
+    'text/csv',
+    'application/csv',
     'application/zip',
     'application/x-zip-compressed'
   ];
 
-  if (allowedMimeTypes.includes(file.mimetype)) {
+  if (allowedMimeTypes.includes(file.mimetype) || file.originalname.endsWith('.csv')) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Allowed types: images, PDF, Word, Excel, text, ZIP'), false);
+    cb(new Error('Invalid file type. Allowed types: images, PDF, Word, Excel, CSV, text, ZIP'), false);
   }
 };
 
@@ -63,11 +65,34 @@ const uploadSingle = upload.single('file');
 // Middleware for multiple files upload
 const uploadMultiple = upload.array('files', 10);
 
+// Memory storage for CSV files (for attendance import)
+const memoryStorage = multer.memoryStorage();
+const csvUpload = multer({
+  storage: memoryStorage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || 
+        file.mimetype === 'application/csv' || 
+        file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'), false);
+    }
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB for CSV files
+  }
+});
+
+// Middleware for CSV file upload (memory storage)
+const uploadCSV = csvUpload.single('file');
+
 module.exports = {
   uploadSingle,
   uploadMultiple,
-  upload
+  upload,
+  uploadCSV
 };
+
 
 
 

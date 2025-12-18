@@ -24,7 +24,7 @@ const getAllStaff = async (req, res) => {
     }
 
     const staff = await Staff.find(query)
-      .select('name phone email hireDate referralCommission paidLeaves specialization status dailyWage createdAt updatedAt')
+      .select('name phone email hireDate referralCommission paidLeaves specialization status dailyWage biometric_emp_id annualPaidLeavesQuota monthlySalary createdAt updatedAt')
       .sort({ createdAt: -1 })
       .lean(); // Use lean() for better performance and to ensure all fields are included
 
@@ -117,7 +117,10 @@ const createStaff = async (req, res) => {
       paidLeaves: req.body.paidLeaves !== undefined ? Number(req.body.paidLeaves) : 0,
       specialization: req.body.specialization,
       status: req.body.status || 'Active',
-      dailyWage: req.body.dailyWage !== undefined ? Number(req.body.dailyWage) : 0
+      dailyWage: req.body.dailyWage !== undefined ? Number(req.body.dailyWage) : 0,
+      biometric_emp_id: toNullIfEmpty(req.body.biometric_emp_id?.trim()),
+      annualPaidLeavesQuota: req.body.annualPaidLeavesQuota !== undefined ? Number(req.body.annualPaidLeavesQuota) : 12,
+      monthlySalary: req.body.monthlySalary !== undefined && req.body.monthlySalary !== null && req.body.monthlySalary !== '' ? Number(req.body.monthlySalary) : null
     };
 
     // Ensure role is not manager
@@ -226,6 +229,15 @@ const updateStaff = async (req, res) => {
     if (req.body.status !== undefined) updateData.status = req.body.status;
     if (req.body.dailyWage !== undefined) {
       updateData.dailyWage = Number(req.body.dailyWage);
+    }
+    if (req.body.biometric_emp_id !== undefined) {
+      updateData.biometric_emp_id = toNullIfEmpty(req.body.biometric_emp_id?.trim());
+    }
+    if (req.body.annualPaidLeavesQuota !== undefined) {
+      updateData.annualPaidLeavesQuota = Number(req.body.annualPaidLeavesQuota);
+    }
+    if (req.body.monthlySalary !== undefined) {
+      updateData.monthlySalary = req.body.monthlySalary !== null && req.body.monthlySalary !== '' ? Number(req.body.monthlySalary) : null;
     }
 
     console.log('updateStaff - Update data:', JSON.stringify({ ...updateData, password: updateData.password ? '***' : undefined }, null, 2));

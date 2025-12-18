@@ -13,6 +13,11 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const messageRoutes = require('./routes/messageRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes');
+const leaveRoutes = require('./routes/leaveRoutes');
+const monthlySalaryConfigRoutes = require('./routes/monthlySalaryConfigRoutes');
+const monthlySalaryRoutes = require('./routes/monthlySalaryRoutes');
+const companyClosureRoutes = require('./routes/companyClosureRoutes');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -62,6 +67,11 @@ app.use('/api/membership-tiers', membershipTierRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api', messageRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/leaves', leaveRoutes);
+app.use('/api/monthly-salary-config', monthlySalaryConfigRoutes);
+app.use('/api/monthly-salary', monthlySalaryRoutes);
+app.use('/api/company-closures', companyClosureRoutes);
 
 // Initialize Socket.io
 const io = new Server(server, {

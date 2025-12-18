@@ -44,7 +44,10 @@ const seedManager = async () => {
       paidLeaves: 0,
       specialization: 'Massage & Spa',
       status: 'Active',
-      dailyWage: 0
+      dailyWage: 0,
+      biometric_emp_id: '1', // Biometric employee ID for attendance system
+      annualPaidLeavesQuota: 12, // Annual paid leaves quota
+      monthlySalary: null // Can be set later or configured per month
     };
 
     // Create manager
@@ -55,6 +58,8 @@ const seedManager = async () => {
     console.log(`  Phone: ${manager.phone}`);
     console.log(`  Email: ${manager.email}`);
     console.log(`  Role: ${manager.role}`);
+    console.log(`  Biometric Employee ID: ${manager.biometric_emp_id}`);
+    console.log(`  Annual Paid Leaves Quota: ${manager.annualPaidLeavesQuota}`);
     console.log(`  Password: ${managerData.password}`);
     console.log('\n⚠️  IMPORTANT: Please change the default password after first login!');
     console.log('\nLogin credentials:');

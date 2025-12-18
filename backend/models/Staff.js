@@ -71,6 +71,23 @@ const staffSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Daily wage cannot be negative']
+  },
+  biometric_emp_id: {
+    type: String,
+    unique: true,
+    sparse: true, // Allows multiple null values
+    trim: true,
+    default: null
+  },
+  annualPaidLeavesQuota: {
+    type: Number,
+    default: 12,
+    min: [0, 'Annual paid leaves quota cannot be negative']
+  },
+  monthlySalary: {
+    type: Number,
+    default: null,
+    min: [0, 'Monthly salary cannot be negative']
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt fields
@@ -79,6 +96,7 @@ const staffSchema = new mongoose.Schema({
 // Indexes
 staffSchema.index({ phone: 1 }); // Already unique, but explicit index
 staffSchema.index({ role: 1 }); // For role-based queries
+staffSchema.index({ biometric_emp_id: 1 }); // For attendance matching
 
 // Hash password before saving
 staffSchema.pre('save', async function(next) {
