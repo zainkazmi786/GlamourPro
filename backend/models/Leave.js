@@ -68,3 +68,5 @@ leaveSchema.pre('save', function(next) {
 module.exports = mongoose.model('Leave', leaveSchema);
 
 
+
+

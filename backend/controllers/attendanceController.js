@@ -311,18 +311,20 @@ const importAttendance = async (req, res) => {
           
           // Standard working hours per day = 8 hours
           const standardHours = 8;
+          const minimumPresentHours = 7.5; // Minimum hours to be considered present
           
           if (workingHours > standardHours) {
             // Overtime: working hours exceed 8 hours
             overtimeHours = workingHours - standardHours;
             status = 'overtime';
-          } else if (workingHours < standardHours) {
-            // Short time: working hours less than 8 hours
-            shortHours = standardHours - workingHours;
-            status = workingHours >= 4 ? 'half-day' : 'absent';
-          } else {
-            // Exactly 8 hours
+          } else if (workingHours >= minimumPresentHours && workingHours <= standardHours) {
+            // Present: working hours between 7.5 and 8 hours (inclusive)
             status = 'present';
+            // No short hours for present status
+          } else if (workingHours < minimumPresentHours) {
+            // Half-day: working hours less than 7.5 hours
+            shortHours = standardHours - workingHours;
+            status = 'half-day';
           }
         }
       } else {
@@ -614,5 +616,6 @@ module.exports = {
   getAttendanceSummary,
   bulkDeleteAttendance
 };
+
 
 

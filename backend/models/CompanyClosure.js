@@ -26,3 +26,5 @@ companyClosureSchema.index({ date: 1 });
 module.exports = mongoose.model('CompanyClosure', companyClosureSchema);
 
 
+
+

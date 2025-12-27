@@ -70,3 +70,4 @@ attendanceSchema.index({ date: 1, staffId: 1 });
 module.exports = mongoose.model('Attendance', attendanceSchema);
 
 
+

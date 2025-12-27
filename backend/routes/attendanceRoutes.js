@@ -22,3 +22,5 @@ router.delete('/bulk', bulkDeleteAttendance);
 module.exports = router;
 
 
+
+

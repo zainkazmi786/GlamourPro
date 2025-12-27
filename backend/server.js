@@ -19,6 +19,8 @@ const leaveRoutes = require('./routes/leaveRoutes');
 const monthlySalaryConfigRoutes = require('./routes/monthlySalaryConfigRoutes');
 const monthlySalaryRoutes = require('./routes/monthlySalaryRoutes');
 const companyClosureRoutes = require('./routes/companyClosureRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const businessSettingsRoutes = require('./routes/businessSettingsRoutes');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -72,6 +74,8 @@ app.use('/api/leaves', leaveRoutes);
 app.use('/api/monthly-salary-config', monthlySalaryConfigRoutes);
 app.use('/api/monthly-salary', monthlySalaryRoutes);
 app.use('/api/company-closures', companyClosureRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/business-settings', businessSettingsRoutes);
 
 // Initialize Socket.io
 const io = new Server(server, {

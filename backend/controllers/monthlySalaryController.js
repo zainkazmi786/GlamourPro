@@ -100,10 +100,53 @@ const calculateMonthlySalary = async (req, res) => {
       }
     }).lean();
 
-    // Calculate actual working days (present days)
-    const actualWorkingDays = attendanceRecords.filter(a => 
-      a.status === 'present' || a.status === 'overtime'
-    ).length;
+    // Separate attendance records by status
+    const presentRecords = attendanceRecords.filter(a => a.status === 'present');
+    const overtimeRecords = attendanceRecords.filter(a => a.status === 'overtime');
+    const halfDayRecords = attendanceRecords.filter(a => a.status === 'half-day');
+    const absentRecords = attendanceRecords.filter(a => a.status === 'absent');
+    
+    // Calculate working days components:
+    // A = Count of days with status 'present' (each = 1 day)
+    const A = presentRecords.length;
+    
+    // B = Count of days with status 'overtime' (each = 1 day)
+    const B = overtimeRecords.length;
+    
+    // X = Sum of workingHours from 'half-day' records / 8
+    // Example: 3 half-days with 4 hours each = 12 hours / 8 = 1.5 working days
+    const totalHalfDayHours = halfDayRecords.reduce((sum, record) => {
+      const hours = record.workingHours || 0;
+      if (isNaN(hours) || hours < 0) {
+        console.warn(`Invalid workingHours in half-day record: ${hours}`);
+        return sum;
+      }
+      return sum + hours;
+    }, 0);
+    const X = totalHalfDayHours > 0 ? totalHalfDayHours / 8 : 0;
+    
+    // Y = Sum of overtimeHours from 'overtime' records / 8 (additional days)
+    // Example: 3 days with 4 overtime hours each = 12 hours / 8 = 1.5 additional working days
+    // These 3 days already count as 3 days (B), so total = 3 + 1.5 = 4.5 working days
+    const totalOvertimeBonusHours = overtimeRecords.reduce((sum, record) => {
+      const hours = record.overtimeHours || 0;
+      if (isNaN(hours) || hours < 0) {
+        console.warn(`Invalid overtimeHours in overtime record: ${hours}`);
+        return sum;
+      }
+      return sum + hours;
+    }, 0);
+    const Y = totalOvertimeBonusHours > 0 ? totalOvertimeBonusHours / 8 : 0;
+    
+    // Actual Working Days = A + B + X + Y
+    const actualWorkingDays = Math.max(0, A + B + X + Y); // Ensure non-negative
+    
+    console.log(`Working Days Calculation:
+      - Present days (A): ${A}
+      - Overtime days (B): ${B}
+      - Half-days converted (X): ${X.toFixed(2)} (from ${totalHalfDayHours.toFixed(2)} hours)
+      - Overtime bonus days (Y): ${Y.toFixed(2)} (from ${totalOvertimeBonusHours.toFixed(2)} hours)
+      - Total Actual Working Days: ${actualWorkingDays.toFixed(2)}`);
 
     // Get leaves for the month
     const leaves = await Leave.find({
@@ -161,45 +204,39 @@ const calculateMonthlySalary = async (req, res) => {
       });
     }
 
-    // Calculate overtime and short days from attendance
-    // For each day: calculate hours, then convert to days
-    let totalOvertimeHours = 0;
+    // Calculate short hours only from records with workingHours < 7.5
+    // This includes half-days and absent records
+    // Note: Half-days are already converted to working days (X), but we still need to calculate
+    // short hours for deduction purposes based on the shortfall from 8 hours
     let totalShortHours = 0;
+    const minimumPresentHours = 7.5;
+    const standardHours = 8;
     
-    attendanceRecords.forEach(record => {
-      // Calculate working hours for this day
-      let dayWorkingHours = 0;
-      
-      if (record.checkIn) {
-        const checkInTime = new Date(record.checkIn);
-        
-        // If overtimeOut exists: (overtimeOut - checkIn), else (checkOut - checkIn)
-        if (record.overtimeOut) {
-          const overtimeTime = new Date(record.overtimeOut);
-          dayWorkingHours = (overtimeTime - checkInTime) / (1000 * 60 * 60);
-        } else if (record.checkOut) {
-          const checkOutTime = new Date(record.checkOut);
-          dayWorkingHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
-        }
-        
-        // Standard working hours per day = 8 hours
-        const standardHours = 8;
-        
-        if (dayWorkingHours > standardHours) {
-          // Overtime hours
-          totalOvertimeHours += (dayWorkingHours - standardHours);
-        } else if (dayWorkingHours < standardHours) {
-          // Short hours
-          totalShortHours += (standardHours - dayWorkingHours);
+    // Calculate short hours from records that worked less than 7.5 hours
+    // (half-days and absent records)
+    const shortTimeRecords = [...halfDayRecords, ...absentRecords];
+    shortTimeRecords.forEach(record => {
+      const workingHours = record.workingHours || 0;
+      if (workingHours > 0 && workingHours < minimumPresentHours) {
+        // Short hours = difference from standard 8 hours
+        const shortHoursForDay = standardHours - workingHours;
+        if (shortHoursForDay > 0) {
+          totalShortHours += shortHoursForDay;
         }
       }
     });
     
-    // Convert overtime hours to days: 4+ extra hours = 0.5 day, 8+ extra hours = 1 full day
-    const overtimeDays = convertOvertimeHoursToDays(totalOvertimeHours);
-    
     // Convert short hours to deduction days: 4+ short hours = 0.5 day deduction, 8+ short hours = 1 full day deduction
     const shortDays = convertShortHoursToDays(totalShortHours);
+    
+    // Overtime days are already accounted for in Y (overtime bonus days)
+    // This represents the additional working days from overtime hours
+    const overtimeDays = Y; // Overtime bonus days from calculation above
+    
+    console.log(`Short Hours Calculation:
+      - Total short hours: ${totalShortHours.toFixed(2)}
+      - Short days (deduction): ${shortDays.toFixed(2)}
+      - Overtime bonus days: ${overtimeDays.toFixed(2)}`);
 
     // Calculate base monthly salary from daily wage
     // Base Monthly Salary = Daily Wage × Working Days in Month
@@ -210,15 +247,30 @@ const calculateMonthlySalary = async (req, res) => {
     // This simplifies to: Base Daily Salary = Daily Wage
     const baseDailySalary = staff.dailyWage;
 
+    // Calculate net salary
+    // Ensure netSalary is never negative (minimum 0)
+    const inputCommission = commission ? Number(commission) : 0;
+    
     // Calculate payable days
+    // Payable Days = Actual Working Days + Paid Leaves + Company Closure Days
     const payableDays = actualWorkingDays + paidLeavesTaken + companyClosureDays;
 
     // Calculate deduction days
+    // Deduction Days = Unpaid Leaves + Short Days (converted)
     const deductionDays = unpaidLeavesTaken + shortDays;
-
-    // Calculate net salary
-    const inputCommission = commission ? Number(commission) : 0;
-    const netSalary = (payableDays - deductionDays) * baseDailySalary + inputCommission;
+    
+    console.log(`Salary Calculation Summary:
+      - Actual Working Days: ${actualWorkingDays.toFixed(2)}
+      - Paid Leaves: ${paidLeavesTaken}
+      - Company Closure Days: ${companyClosureDays}
+      - Payable Days: ${payableDays.toFixed(2)}
+      - Unpaid Leaves: ${unpaidLeavesTaken}
+      - Short Days: ${shortDays.toFixed(2)}
+      - Deduction Days: ${deductionDays.toFixed(2)}
+      - Base Daily Salary: ${baseDailySalary.toFixed(2)}
+      - Commission: ${inputCommission.toFixed(2)}`);
+    const calculatedSalary = (payableDays - deductionDays) * baseDailySalary + inputCommission;
+    const netSalary = Math.max(0, calculatedSalary); // Ensure minimum is 0
 
     // Create or update monthly salary record
     const salaryData = {
@@ -226,14 +278,14 @@ const calculateMonthlySalary = async (req, res) => {
       month,
       year,
       baseDailySalary: Math.round(baseDailySalary * 100) / 100,
-      actualWorkingDays,
+      actualWorkingDays: Math.round(actualWorkingDays * 100) / 100, // Round to 2 decimal places
       paidLeavesTaken,
       unpaidLeavesTaken,
-      overtimeDays,
-      shortDays,
+      overtimeDays: Math.round(overtimeDays * 100) / 100, // Overtime bonus days
+      shortDays: Math.round(shortDays * 100) / 100,
       companyClosureDays,
-      payableDays,
-      deductionDays,
+      payableDays: Math.round(payableDays * 100) / 100,
+      deductionDays: Math.round(deductionDays * 100) / 100,
       netSalary: Math.round(netSalary * 100) / 100,
       commission: inputCommission,
       status: 'draft',
@@ -418,7 +470,8 @@ const updateMonthlySalary = async (req, res) => {
     if (commission !== undefined) {
       updateData.commission = Number(commission);
       // Recalculate net salary with new commission
-      const netSalary = (salary.payableDays - salary.deductionDays) * salary.baseDailySalary + Number(commission);
+      const calculatedSalary = (salary.payableDays - salary.deductionDays) * salary.baseDailySalary + Number(commission);
+      const netSalary = Math.max(0, calculatedSalary); // Ensure minimum is 0
       updateData.netSalary = Math.round(netSalary * 100) / 100;
     }
     if (status !== undefined) {

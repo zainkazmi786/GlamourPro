@@ -36,6 +36,7 @@ const monthlySalarySchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: 0
+    // Can be decimal (e.g., 1.5 days from half-days conversion)
   },
   paidLeavesTaken: {
     type: Number,
@@ -66,11 +67,13 @@ const monthlySalarySchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 0
+    // Can be decimal (e.g., 20.5 days)
   },
   deductionDays: {
     type: Number,
     required: true,
     min: 0
+    // Can be decimal (e.g., 1.5 days)
   },
   netSalary: {
     type: Number,
@@ -99,5 +102,7 @@ monthlySalarySchema.index({ year: 1, month: 1 });
 monthlySalarySchema.index({ status: 1 });
 
 module.exports = mongoose.model('MonthlySalary', monthlySalarySchema);
+
+
 
 
