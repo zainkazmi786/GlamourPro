@@ -24,7 +24,7 @@ const getAllStaff = async (req, res) => {
     }
 
     const staff = await Staff.find(query)
-      .select('name phone email hireDate referralCommission paidLeaves specialization status dailyWage biometric_emp_id annualPaidLeavesQuota monthlySalary createdAt updatedAt')
+      .select('name phone email role hireDate referralCommission paidLeaves specialization status dailyWage biometric_emp_id annualPaidLeavesQuota monthlySalary createdAt updatedAt')
       .sort({ createdAt: -1 })
       .lean(); // Use lean() for better performance and to ensure all fields are included
 

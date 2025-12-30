@@ -108,3 +108,5 @@ businessSettingsSchema.statics.getSettings = async function() {
 
 module.exports = mongoose.model('BusinessSettings', businessSettingsSchema);
 
+
+

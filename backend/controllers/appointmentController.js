@@ -5,6 +5,7 @@ const BaseService = require('../models/BaseService');
 const ServiceVariation = require('../models/ServiceVariation');
 const Staff = require('../models/Staff');
 const MembershipTier = require('../models/MembershipTier');
+const CompanyClosure = require('../models/CompanyClosure');
 
 // Helper function to calculate total price
 const calculateTotalPrice = (price, membershipDiscount, staffCommission) => {
@@ -375,6 +376,19 @@ const createAppointment = async (req, res) => {
       });
     }
 
+    // Check if appointment date is a company closure/holiday
+    const appointmentDate = new Date(appointmentStartTime);
+    appointmentDate.setHours(0, 0, 0, 0); // Normalize to start of day for comparison
+    
+    const closure = await CompanyClosure.findOne({ date: appointmentDate });
+    if (closure) {
+      const closureType = closure.isHoliday ? 'holiday' : 'company closure';
+      return res.status(400).json({
+        success: false,
+        message: `Cannot create appointment on ${closureType}${closure.reason ? `: ${closure.reason}` : ''}`
+      });
+    }
+
     // Round to nearest hour (remove minutes and seconds)
     appointmentStartTime.setMinutes(0, 0, 0);
 
@@ -449,23 +463,28 @@ const createAppointment = async (req, res) => {
     }
 
     // Calculate staff commission if reference staff is selected
+    // Allow override from request body if explicitly provided (for manual adjustments)
     let staffCommission = 0;
-        if (reference === 'staff' && referenceStaff && referenceStaff.referralCommission !== undefined && referenceStaff.referralCommission !== null) {
-          // referenceStaff.referralCommission is a decimal between 0 and 1 (e.g., 0.1 = 10%)
-          // Calculate commission as: price * referralCommission
-          staffCommission = price * referenceStaff.referralCommission;
-          console.log('Backend staff commission calculation:', {
-            price,
-            referralCommission: referenceStaff.referralCommission,
-            staffCommission,
-            staffName: referenceStaff.name
-          });
-        } else {
-          console.warn('Reference staff commission not calculated:', {
-            reference,
-            referenceStaff: referenceStaff ? { _id: referenceStaff._id, name: referenceStaff.name, referralCommission: referenceStaff.referralCommission } : null
-          });
-        }
+    if (req.body.staffCommission !== undefined && req.body.staffCommission !== null) {
+      // Use provided staff commission from frontend
+      staffCommission = Number(req.body.staffCommission);
+      console.log('Backend: Using staff commission from request:', staffCommission);
+    } else if (reference === 'staff' && referenceStaff && referenceStaff.referralCommission !== undefined && referenceStaff.referralCommission !== null) {
+      // Calculate commission: price * referralCommission
+      staffCommission = price * referenceStaff.referralCommission;
+      console.log('Backend staff commission calculation:', {
+        price,
+        referralCommission: referenceStaff.referralCommission,
+        staffCommission,
+        staffName: referenceStaff.name
+      });
+    } else {
+      console.warn('Reference staff commission not calculated:', {
+        reference,
+        referenceStaff: referenceStaff ? { _id: referenceStaff._id, name: referenceStaff.name, referralCommission: referenceStaff.referralCommission } : null,
+        providedStaffCommission: req.body.staffCommission
+      });
+    }
 
     // Calculate total price
     const totalPrice = calculateTotalPrice(price, membershipDiscount, staffCommission);
@@ -587,6 +606,22 @@ const updateAppointment = async (req, res) => {
     // If startTime or staffId is being updated, validate time slot
     if (req.body.startTime || req.body.staffId) {
       const newStartTime = req.body.startTime ? new Date(req.body.startTime) : appointment.startTime;
+      
+      // Check if new appointment date is a company closure/holiday
+      if (req.body.startTime) {
+        const appointmentDate = new Date(newStartTime);
+        appointmentDate.setHours(0, 0, 0, 0); // Normalize to start of day for comparison
+        
+        const closure = await CompanyClosure.findOne({ date: appointmentDate });
+        if (closure) {
+          const closureType = closure.isHoliday ? 'holiday' : 'company closure';
+          return res.status(400).json({
+            success: false,
+            message: `Cannot update appointment to ${closureType}${closure.reason ? `: ${closure.reason}` : ''}`
+          });
+        }
+      }
+      
       newStartTime.setMinutes(0, 0, 0);
       const newStaffId = req.body.staffId || appointment.staffId;
 

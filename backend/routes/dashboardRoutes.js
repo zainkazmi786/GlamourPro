@@ -26,3 +26,5 @@ router.get('/today-appointments-list', getTodayAppointmentsList);
 
 module.exports = router;
 
+
+

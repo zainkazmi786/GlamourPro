@@ -48,7 +48,7 @@ const createLeave = async (req, res) => {
       });
     }
 
-    // Calculate days
+    // Calculate days (including both start and end dates)
     const diffTime = Math.abs(end - start);
     const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
     const year = start.getFullYear();
@@ -73,12 +73,14 @@ const createLeave = async (req, res) => {
       }
     }
 
+    // Create leave with days explicitly set (pre-save hook will also calculate it, but this ensures it's set for validation)
     const leave = await Leave.create({
       staffId,
       startDate: start,
       endDate: end,
       type,
       reason: reason || null,
+      days, // Explicitly set days to satisfy required validation
       year
     });
 
@@ -381,6 +383,8 @@ module.exports = {
   updateLeave,
   deleteLeave
 };
+
+
 
 
 
