@@ -13,61 +13,23 @@ const {
   updatePaymentStatus,
   getPaymentsByClient
 } = require('../controllers/paymentController');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
-// @route   GET /api/payments
-// @desc    Get all payments
-// @access  Public
-router.get('/', getAllPayments);
+// All payment routes require authentication
+router.use(protect);
 
-// @route   GET /api/payments/client/:clientId
-// @desc    Get payments by client
-// @access  Public
-router.get('/client/:clientId', getPaymentsByClient);
-
-// @route   GET /api/payments/:id
-// @desc    Get single payment by ID
-// @access  Public
-router.get('/:id', getPaymentById);
-
-// @route   POST /api/payments
-// @desc    Create new payment
-// @access  Public
-router.post('/', createPayment);
-
-// @route   PUT /api/payments/:id
-// @desc    Update payment
-// @access  Public
-router.put('/:id', updatePayment);
-
-// @route   DELETE /api/payments/:id
-// @desc    Delete payment
-// @access  Public
-router.delete('/:id', deletePayment);
-
-// @route   POST /api/payments/:id/split
-// @desc    Split payment into multiple payments
-// @access  Public
-router.post('/:id/split', splitPayment);
-
-// @route   POST /api/payments/combine
-// @desc    Combine multiple payments into one
-// @access  Public
-router.post('/combine', combinePayments);
-
-// @route   POST /api/payments/generate-bill
-// @desc    Generate PDF bill for payments
-// @access  Public
-router.post('/generate-bill', generateBill);
-
-// @route   GET /api/payments/download-bill/:fileName
-// @desc    Download PDF bill
-// @access  Public
-router.get('/download-bill/:fileName', downloadBill);
-
-// @route   PATCH /api/payments/:id/status
-// @desc    Update payment status
-// @access  Public
-router.patch('/:id/status', updatePaymentStatus);
+// POS/Payment routes - Only Receptionist and Manager can access
+router.get('/', authorize('receptionist', 'manager'), getAllPayments);
+router.get('/client/:clientId', authorize('receptionist', 'manager'), getPaymentsByClient);
+router.get('/:id', authorize('receptionist', 'manager'), getPaymentById);
+router.post('/', authorize('receptionist', 'manager'), createPayment);
+router.put('/:id', authorize('receptionist', 'manager'), updatePayment);
+router.delete('/:id', authorize('receptionist', 'manager'), deletePayment); // Manager and Receptionist can delete
+router.post('/:id/split', authorize('receptionist', 'manager'), splitPayment);
+router.post('/combine', authorize('receptionist', 'manager'), combinePayments);
+router.post('/generate-bill', authorize('receptionist', 'manager'), generateBill);
+router.get('/download-bill/:fileName', authorize('receptionist', 'manager'), downloadBill);
+router.patch('/:id/status', authorize('receptionist', 'manager'), updatePaymentStatus);
 
 module.exports = router;
 

@@ -21,6 +21,8 @@ const monthlySalaryRoutes = require('./routes/monthlySalaryRoutes');
 const companyClosureRoutes = require('./routes/companyClosureRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const businessSettingsRoutes = require('./routes/businessSettingsRoutes');
+const clientPortalRoutes = require('./routes/clientPortalRoutes');
+const reportsRoutes = require('./routes/reportsRoutes')
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -59,6 +61,8 @@ app.get('/', (req, res) => {
 });
 
 // API Routes
+// Mount client portal routes FIRST to ensure public routes (register/login) are accessible
+app.use('/api/client-portal', clientPortalRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/staff', staffRoutes);
@@ -68,6 +72,7 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/membership-tiers', membershipTierRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/chats', chatRoutes);
+// Mount messageRoutes - these routes handle /api/chats/:chatId/messages and /api/messages/:id
 app.use('/api', messageRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leaves', leaveRoutes);
@@ -76,6 +81,7 @@ app.use('/api/monthly-salary', monthlySalaryRoutes);
 app.use('/api/company-closures', companyClosureRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/business-settings', businessSettingsRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Initialize Socket.io
 const io = new Server(server, {

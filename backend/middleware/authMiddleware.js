@@ -60,7 +60,8 @@ const protect = async (req, res, next) => {
 
 // @desc    Authorize routes - check role
 // @usage   router.get('/admin', protect, authorize('manager'), controllerFunction);
-// @usage   router.get('/staff', protect, authorize(['therapist', 'receptionist', 'manager']), controllerFunction);
+// @usage   router.get('/staff', protect, authorize('therapist', 'receptionist', 'manager'), controllerFunction);
+// Note: Manager always has access to all routes
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!req.staff) {
@@ -70,10 +71,17 @@ const authorize = (...roles) => {
       });
     }
 
+    // Manager always has access to everything
+    if (req.staff.role === 'manager') {
+      return next();
+    }
+
+    // Check if user's role is in the allowed roles array
+    // When called as authorize('receptionist', 'manager'), roles = ['receptionist', 'manager']
     if (!roles.includes(req.staff.role)) {
       return res.status(403).json({
         success: false,
-        message: `User role '${req.staff.role}' is not authorized to access this route`
+        message: `User role '${req.staff.role}' is not authorized to access this route. Allowed roles: ${roles.join(', ')}`
       });
     }
 

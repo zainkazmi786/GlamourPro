@@ -42,6 +42,11 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: null
+  },
+  parent_appointment_ids: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'Appointment',
+    default: []
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt fields

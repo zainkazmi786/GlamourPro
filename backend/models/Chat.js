@@ -91,17 +91,29 @@ chatSchema.index({ admins: 1 });
 
 // Method to check if user is member
 chatSchema.methods.isMember = function(userId) {
-  return this.members.some(member => member.userId.toString() === userId.toString());
+  if (!userId) return false;
+  return this.members.some(member => {
+    if (!member || !member.userId) return false;
+    return member.userId.toString() === userId.toString();
+  });
 };
 
 // Method to check if user is admin
 chatSchema.methods.isAdmin = function(userId) {
-  return this.admins.some(admin => admin.toString() === userId.toString());
+  if (!userId) return false;
+  return this.admins.some(admin => {
+    if (!admin) return false;
+    return admin.toString() === userId.toString();
+  });
 };
 
 // Method to get member role
 chatSchema.methods.getMemberRole = function(userId) {
-  const member = this.members.find(m => m.userId.toString() === userId.toString());
+  if (!userId) return null;
+  const member = this.members.find(m => {
+    if (!m || !m.userId) return false;
+    return m.userId.toString() === userId.toString();
+  });
   return member ? member.role : null;
 };
 

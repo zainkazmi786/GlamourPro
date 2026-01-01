@@ -26,7 +26,11 @@ const getAllChats = async (req, res) => {
     const chatsWithUnread = await Promise.all(
       chats.map(async (chat) => {
         // Get member's last read message
-        const member = chat.members.find(m => m.userId._id.toString() === staffId.toString());
+        const member = chat.members.find(m => {
+          if (!m || !m.userId) return false;
+          const userId = typeof m.userId === 'object' && m.userId !== null ? m.userId._id : m.userId;
+          return userId && userId.toString() === staffId.toString();
+        });
         const lastReadMessageId = member?.lastReadMessageId;
 
         // Count unread messages
@@ -487,7 +491,15 @@ const addMembers = async (req, res) => {
     }
 
     // Add members (avoid duplicates)
-    const existingMemberIds = chat.members.map(m => m.userId.toString());
+    const existingMemberIds = chat.members.map(m => {
+      if (!m || !m.userId) return null;
+      return m.userId.toString();
+    }).filter(id => id !== null);
+    
+    const duplicateMemberIds = members.filter(memberId => 
+      existingMemberIds.includes(memberId.toString())
+    );
+    
     const newMembers = members
       .filter(memberId => !existingMemberIds.includes(memberId.toString()))
       .map(memberId => ({
@@ -499,7 +511,9 @@ const addMembers = async (req, res) => {
     if (newMembers.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'All members are already in the chat'
+        message: duplicateMemberIds.length === 1 
+          ? 'This member is already in the group'
+          : 'All selected members are already in the group'
       });
     }
 
@@ -513,10 +527,16 @@ const addMembers = async (req, res) => {
       .populate('admins', 'name phone email role')
       .populate('lastMessage');
 
+    // Build response message
+    let message = `${newMembers.length} member(s) added successfully`;
+    if (duplicateMemberIds.length > 0) {
+      message += `. ${duplicateMemberIds.length} member(s) ${duplicateMemberIds.length === 1 ? 'was' : 'were'} already in the group`;
+    }
+
     res.status(200).json({
       success: true,
       data: populatedChat,
-      message: `${newMembers.length} member(s) added successfully`
+      message: message
     });
   } catch (error) {
     console.error('Add members error:', error);

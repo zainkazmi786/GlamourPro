@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const Client = require('../models/Client');
+const SessionResetLog = require('../models/SessionResetLog');
+const PointsHistory = require('../models/PointsHistory');
 
 // @desc    Get all clients
 // @route   GET /api/clients
@@ -339,11 +341,165 @@ const deleteClient = async (req, res) => {
   }
 };
 
+// @desc    Reset client sessions
+// @route   POST /api/clients/:id/reset-sessions
+// @access  Public (should be protected in production)
+const resetClientSessions = async (req, res) => {
+  try {
+    const client = await Client.findById(req.params.id);
+
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client not found'
+      });
+    }
+
+    const sessionsReset = client.total_sessions || 0;
+
+    // Create session reset log
+    const resetLog = await SessionResetLog.create({
+      clientId: client._id,
+      sessionsReset: sessionsReset,
+      resetBy: req.staff ? req.staff._id : null, // Set by protect middleware
+      resetDate: new Date()
+    });
+
+    // Reset sessions to 0
+    client.total_sessions = 0;
+    await client.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Sessions reset successfully. ${sessionsReset} session(s) were reset.`,
+      data: {
+        client: {
+          _id: client._id,
+          name: client.name,
+          total_sessions: client.total_sessions
+        },
+        resetLog: resetLog
+      }
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid client ID'
+      });
+    }
+    console.error('resetClientSessions - Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error resetting client sessions',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get client points history
+// @route   GET /api/clients/:id/points-history
+// @access  Public
+const getClientPointsHistory = async (req, res) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const client = await Client.findById(req.params.id);
+
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client not found'
+      });
+    }
+
+    const pointsHistory = await PointsHistory.find({ clientId: req.params.id })
+      .populate('appointmentId', 'startTime serviceVariationId')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber)
+      .lean();
+
+    const total = await PointsHistory.countDocuments({ clientId: req.params.id });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        data: pointsHistory,
+        pagination: {
+          page: pageNumber,
+          limit: limitNumber,
+          total,
+          pages: Math.ceil(total / limitNumber)
+        }
+      }
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid client ID'
+      });
+    }
+    console.error('getClientPointsHistory - Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching points history',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get client by RFID number
+// @route   GET /api/clients/rfid/:rfidNumber
+// @access  Public
+const getClientByRFID = async (req, res) => {
+  try {
+    const { rfidNumber } = req.params;
+
+    if (!rfidNumber || rfidNumber.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'RFID number is required'
+      });
+    }
+
+    const client = await Client.findOne({ rfid_number: rfidNumber.trim() })
+      .populate('membership_id', 'name discount_percent points_per_session point_value redemption_threshold isActive max_sessions_before_reset')
+      .lean();
+
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client not found with this RFID number'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: client
+    });
+  } catch (error) {
+    console.error('getClientByRFID - Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching client by RFID',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllClients,
   getClientById,
   createClient,
   updateClient,
-  deleteClient
+  deleteClient,
+  resetClientSessions,
+  getClientPointsHistory,
+  getClientByRFID
 };
 

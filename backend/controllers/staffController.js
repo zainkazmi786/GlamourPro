@@ -3,12 +3,17 @@ const Staff = require('../models/Staff');
 
 // @desc    Get all staff members
 // @route   GET /api/staff
-// @access  Public
+// @access  Private (Manager only, but Therapist can see self)
 const getAllStaff = async (req, res) => {
   try {
     console.log('getAllStaff - Query params:', req.query);
     const { search, phone } = req.query;
     let query = {};
+
+    // Role-based filtering: Therapist can only see themselves
+    if (req.staff && req.staff.role === 'therapist') {
+      query._id = req.staff._id;
+    }
 
     // Search by phone number if provided
     if (phone) {
@@ -53,9 +58,19 @@ const getAllStaff = async (req, res) => {
 
 // @desc    Get single staff member by ID
 // @route   GET /api/staff/:id
-// @access  Public
+// @access  Private (Therapist can only see self, Manager can see all)
 const getStaffById = async (req, res) => {
   try {
+    // Role-based access: Therapist can only see themselves
+    if (req.staff && req.staff.role === 'therapist') {
+      if (req.params.id !== req.staff._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only view your own profile'
+        });
+      }
+    }
+
     const staff = await Staff.findById(req.params.id);
 
     if (!staff) {
@@ -176,7 +191,7 @@ const createStaff = async (req, res) => {
 
 // @desc    Update staff member
 // @route   PUT /api/staff/:id
-// @access  Public
+// @access  Private (Therapist can only update self with limited fields, Manager can update all)
 const updateStaff = async (req, res) => {
   try {
     console.log('updateStaff - Request params:', req.params);
@@ -189,6 +204,26 @@ const updateStaff = async (req, res) => {
         success: false,
         message: 'Staff member not found'
       });
+    }
+
+    // Role-based access: Therapist can only update themselves
+    if (req.staff && req.staff.role === 'therapist') {
+      if (req.params.id !== req.staff._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only update your own profile'
+        });
+      }
+      // Therapist can only update limited fields (name, phone, email, password)
+      const allowedFields = ['name', 'phone', 'email', 'password'];
+      const requestedFields = Object.keys(req.body);
+      const disallowedFields = requestedFields.filter(field => !allowedFields.includes(field));
+      if (disallowedFields.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: `You can only update: ${allowedFields.join(', ')}`
+        });
+      }
     }
 
     // Prevent role change to/from manager via form

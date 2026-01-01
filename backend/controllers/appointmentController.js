@@ -6,6 +6,8 @@ const ServiceVariation = require('../models/ServiceVariation');
 const Staff = require('../models/Staff');
 const MembershipTier = require('../models/MembershipTier');
 const CompanyClosure = require('../models/CompanyClosure');
+const PointsHistory = require('../models/PointsHistory');
+const BusinessSettings = require('../models/BusinessSettings');
 
 // Helper function to calculate total price
 const calculateTotalPrice = (price, membershipDiscount, staffCommission) => {
@@ -93,6 +95,11 @@ const getAllAppointments = async (req, res) => {
     const { date, staffId, clientId, status, startDate, endDate } = req.query;
     let query = {};
 
+    // Role-based filtering: Therapist can only see their own appointments
+    if (req.staff && req.staff.role === 'therapist') {
+      query.staffId = req.staff._id;
+    }
+
     // Filter by date (single date)
     if (date) {
       const startOfDay = new Date(date);
@@ -111,8 +118,8 @@ const getAllAppointments = async (req, res) => {
       query.startTime = { $gte: start, $lte: end };
     }
 
-    // Filter by staff
-    if (staffId) {
+    // Filter by staff (only if not therapist - therapist is already filtered above)
+    if (staffId && (!req.staff || req.staff.role !== 'therapist')) {
       if (!mongoose.Types.ObjectId.isValid(staffId)) {
         return res.status(400).json({
           success: false,
@@ -138,8 +145,13 @@ const getAllAppointments = async (req, res) => {
       query.status = status;
     }
 
+    // For therapist, don't populate client personal data
+    const populateFields = req.staff && req.staff.role === 'therapist' 
+      ? 'name' // Only name, no phone/email
+      : 'name phone email';
+
     const appointments = await Appointment.find(query)
-      .populate('clientId', 'name phone email')
+      .populate('clientId', populateFields)
       .populate('baseServiceId', 'name category')
       .populate('serviceVariationId', 'variationName timeDuration price commission')
       .populate('staffId', 'name specialization')
@@ -216,14 +228,24 @@ const getAvailableSlots = async (req, res) => {
 // @access  Public
 const getAppointmentById = async (req, res) => {
   try {
-    const appointment = await Appointment.findById(req.params.id)
+    // Role-based filtering: Therapist can only see their own appointments
+    let query = { _id: req.params.id };
+    if (req.staff && req.staff.role === 'therapist') {
+      query.staffId = req.staff._id;
+    }
+
+    const appointment = await Appointment.findOne(query)
       .populate({
         path: 'clientId',
-        select: 'name phone email membership_id points_balance total_sessions rfid_number',
-        populate: {
-          path: 'membership_id',
-          select: 'name discount_percent points_per_session point_value redemption_threshold isActive'
-        }
+        select: req.staff && req.staff.role === 'therapist' 
+          ? 'name' // Therapist: only name
+          : 'name phone email membership_id points_balance total_sessions rfid_number',
+        populate: req.staff && req.staff.role === 'therapist' 
+          ? undefined // Therapist: no membership data
+          : {
+              path: 'membership_id',
+              select: 'name discount_percent points_per_session point_value redemption_threshold isActive'
+            }
       })
       .populate('baseServiceId', 'name category')
       .populate('serviceVariationId', 'variationName timeDuration price commission')
@@ -236,6 +258,14 @@ const getAppointmentById = async (req, res) => {
         success: false,
         message: 'Appointment not found'
       });
+    }
+
+    // For therapist, sanitize client data
+    if (req.staff && req.staff.role === 'therapist' && appointment.clientId) {
+      appointment.clientId = {
+        _id: appointment.clientId._id,
+        name: appointment.clientId.name
+      };
     }
 
     res.status(200).json({
@@ -486,8 +516,50 @@ const createAppointment = async (req, res) => {
       });
     }
 
-    // Calculate total price
-    const totalPrice = calculateTotalPrice(price, membershipDiscount, staffCommission);
+    // Handle points redemption if provided
+    let pointsUsed = 0;
+    let pointsDiscount = 0;
+    if (req.body.pointsToRedeem !== undefined && Number(req.body.pointsToRedeem) > 0) {
+      const pointsToRedeem = Number(req.body.pointsToRedeem);
+      
+      // Validate points redemption
+      if (pointsToRedeem > client.points_balance) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient points balance. Available: ${client.points_balance}, Requested: ${pointsToRedeem}`
+        });
+      }
+
+      // Get BusinessSettings for point value and threshold
+      const businessSettings = await BusinessSettings.findOne() || await BusinessSettings.create({});
+      
+      if (pointsToRedeem < businessSettings.redemptionThreshold) {
+        return res.status(400).json({
+          success: false,
+          message: `Points redemption must be at least ${businessSettings.redemptionThreshold} points`
+        });
+      }
+
+      // Calculate discount from points
+      pointsDiscount = pointsToRedeem * businessSettings.pointValue;
+      pointsUsed = pointsToRedeem;
+
+      // Deduct points from client balance
+      client.points_balance = Math.max(0, client.points_balance - pointsToRedeem);
+      await client.save();
+
+      // Create points history entry (appointmentId will be set after appointment creation)
+      await PointsHistory.create({
+        clientId: client._id,
+        appointmentId: null, // Will be updated after appointment creation
+        points: -pointsToRedeem, // Negative for redeemed
+        type: 'redeemed',
+        description: `Points redeemed for appointment`
+      });
+    }
+
+    // Calculate total price (including points discount)
+    const totalPrice = Math.max(0, price - membershipDiscount - pointsDiscount - staffCommission);
 
     // Prepare appointment data (payment fields removed - handled separately in Payment model)
     const appointmentData = {
@@ -505,12 +577,23 @@ const createAppointment = async (req, res) => {
       totalPrice,
       status: req.body.status || 'scheduled',
       notes: req.body.notes || null,
-      payment_ids: [] // Initialize empty payment_ids array
+      payment_ids: [], // Initialize empty payment_ids array
+      pointsUsed: pointsUsed,
+      pointsAwarded: 0 // Will be set when appointment is completed
     };
 
     console.log('createAppointment - Processed data:', JSON.stringify(appointmentData, null, 2));
 
     const appointment = await Appointment.create(appointmentData);
+
+    // Update points history with appointment ID if points were used
+    if (pointsUsed > 0) {
+      await PointsHistory.updateOne(
+        { clientId: client._id, appointmentId: null, type: 'redeemed' },
+        { appointmentId: appointment._id },
+        { sort: { createdAt: -1 } }
+      );
+    }
 
     // Populate and return
     const populatedAppointment = await Appointment.findById(appointment._id)
@@ -746,8 +829,88 @@ const updateAppointment = async (req, res) => {
       }
     }
 
-    // Recalculate total price
-    const totalPrice = calculateTotalPrice(price, membershipDiscount, staffCommission);
+    // Handle points redemption if provided
+    let pointsUsed = appointment.pointsUsed || 0;
+    let pointsDiscount = 0;
+    if (req.body.pointsToRedeem !== undefined && Number(req.body.pointsToRedeem) > 0) {
+      const pointsToRedeem = Number(req.body.pointsToRedeem);
+      
+      // Get current client (or updated client if clientId changed)
+      const currentClient = client || await Client.findById(appointment.clientId);
+      
+      if (!currentClient) {
+        return res.status(404).json({
+          success: false,
+          message: 'Client not found'
+        });
+      }
+
+      // Calculate available points (account for already used points if reverting)
+      const availablePoints = currentClient.points_balance + (appointment.pointsUsed || 0);
+      
+      // Validate points redemption
+      if (pointsToRedeem > availablePoints) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient points balance. Available: ${availablePoints}, Requested: ${pointsToRedeem}`
+        });
+      }
+
+      // Get BusinessSettings for point value and threshold
+      const businessSettings = await BusinessSettings.findOne() || await BusinessSettings.create({});
+      
+      if (pointsToRedeem < businessSettings.redemptionThreshold) {
+        return res.status(400).json({
+          success: false,
+          message: `Points redemption must be at least ${businessSettings.redemptionThreshold} points`
+        });
+      }
+
+      // Revert previously used points if any
+      if (appointment.pointsUsed > 0) {
+        currentClient.points_balance += appointment.pointsUsed;
+        // Delete old points history entry
+        await PointsHistory.deleteOne({ 
+          appointmentId: appointment._id, 
+          type: 'redeemed' 
+        });
+      }
+
+      // Calculate discount from points
+      pointsDiscount = pointsToRedeem * businessSettings.pointValue;
+      pointsUsed = pointsToRedeem;
+
+      // Deduct points from client balance
+      currentClient.points_balance = Math.max(0, currentClient.points_balance - pointsToRedeem);
+      await currentClient.save();
+
+      // Create points history entry
+      await PointsHistory.create({
+        clientId: currentClient._id,
+        appointmentId: appointment._id,
+        points: -pointsToRedeem, // Negative for redeemed
+        type: 'redeemed',
+        description: `Points redeemed for appointment`
+      });
+    } else if (req.body.pointsToRedeem === 0 || req.body.pointsToRedeem === null) {
+      // Revert points if explicitly set to 0 or null
+      if (appointment.pointsUsed > 0) {
+        const currentClient = client || await Client.findById(appointment.clientId);
+        if (currentClient) {
+          currentClient.points_balance += appointment.pointsUsed;
+          await currentClient.save();
+          // Delete points history entry
+          await PointsHistory.deleteOne({ 
+            appointmentId: appointment._id, 
+            type: 'redeemed' 
+          });
+        }
+        pointsUsed = 0;
+      }
+    }
+
+    // Recalculate total price (membership discount + points discount)
+    const totalPrice = Math.max(0, price - membershipDiscount - pointsDiscount - staffCommission);
 
     // Update only provided fields
     const updateData = {};
@@ -793,7 +956,93 @@ const updateAppointment = async (req, res) => {
     // Always update totalPrice when prices change
     updateData.totalPrice = totalPrice;
     // Payment fields removed - handled separately in Payment model
-    if (req.body.status !== undefined) updateData.status = req.body.status;
+    
+    // Handle points awarding when status changes to completed
+    const previousStatus = appointment.status;
+    if (req.body.status !== undefined) {
+      // Prevent setting future appointments as completed
+      if (req.body.status === 'completed') {
+        const appointmentTime = new Date(appointment.startTime);
+        const now = new Date();
+        
+        if (appointmentTime > now) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot mark future appointments as completed'
+          });
+        }
+      }
+      updateData.status = req.body.status;
+      
+      // Award points when status changes to completed
+      if (req.body.status === 'completed' && previousStatus !== 'completed') {
+        // Get client with membership
+        const currentClient = await Client.findById(appointment.clientId)
+          .populate('membership_id');
+        
+        if (currentClient && currentClient.membership_id && appointment.pointsAwarded === 0) {
+          const membershipTier = typeof currentClient.membership_id === 'object' 
+            ? currentClient.membership_id 
+            : await MembershipTier.findById(currentClient.membership_id);
+          
+          if (membershipTier && membershipTier.isActive) {
+            const pointsToAward = membershipTier.points_per_session || 0;
+            
+            if (pointsToAward > 0) {
+              // Increment client points balance
+              currentClient.points_balance = (currentClient.points_balance || 0) + pointsToAward;
+              
+              // Increment session count
+              currentClient.total_sessions = (currentClient.total_sessions || 0) + 1;
+              
+              await currentClient.save();
+              
+              // Create points history entry
+              await PointsHistory.create({
+                clientId: currentClient._id,
+                appointmentId: appointment._id,
+                points: pointsToAward,
+                type: 'earned',
+                description: `Points earned from completed appointment`
+              });
+              
+              // Update appointment with points awarded
+              updateData.pointsAwarded = pointsToAward;
+              
+              // Check if max_sessions_before_reset is reached
+              if (membershipTier.max_sessions_before_reset && 
+                  currentClient.total_sessions >= membershipTier.max_sessions_before_reset) {
+                console.warn(`Client ${currentClient._id} has reached max sessions (${membershipTier.max_sessions_before_reset}) for tier ${membershipTier.name}`);
+              }
+            }
+          }
+        }
+      }
+      
+      // Handle reverting points when status changes FROM completed
+      if (previousStatus === 'completed' && req.body.status !== 'completed' && appointment.pointsAwarded > 0) {
+        const currentClient = await Client.findById(appointment.clientId);
+        
+        if (currentClient) {
+          // Revert points
+          currentClient.points_balance = Math.max(0, (currentClient.points_balance || 0) - appointment.pointsAwarded);
+          
+          // Revert session count
+          currentClient.total_sessions = Math.max(0, (currentClient.total_sessions || 0) - 1);
+          
+          await currentClient.save();
+          
+          // Delete points history entry for this appointment
+          await PointsHistory.deleteOne({ 
+            appointmentId: appointment._id, 
+            type: 'earned' 
+          });
+          
+          // Reset points awarded
+          updateData.pointsAwarded = 0;
+        }
+      }
+    }
     if (req.body.notes !== undefined) updateData.notes = req.body.notes || null;
 
     console.log('updateAppointment - Update data:', JSON.stringify(updateData, null, 2));
@@ -875,9 +1124,95 @@ const updateAppointmentStatus = async (req, res) => {
       });
     }
 
+    // Prevent setting future appointments as completed
+    if (req.body.status === 'completed') {
+      const appointmentTime = new Date(appointment.startTime);
+      const now = new Date();
+      
+      if (appointmentTime > now) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot mark future appointments as completed'
+        });
+      }
+    }
+
+    // Handle points awarding when status changes to completed
+    const previousStatus = appointment.status;
+    const newStatus = req.body.status;
+    const updateData = { status: newStatus };
+    
+    if (newStatus === 'completed' && previousStatus !== 'completed') {
+      // Get client with membership
+      const currentClient = await Client.findById(appointment.clientId)
+        .populate('membership_id');
+      
+      if (currentClient && currentClient.membership_id && appointment.pointsAwarded === 0) {
+        const membershipTier = typeof currentClient.membership_id === 'object' 
+          ? currentClient.membership_id 
+          : await MembershipTier.findById(currentClient.membership_id);
+        
+        if (membershipTier && membershipTier.isActive) {
+          const pointsToAward = membershipTier.points_per_session || 0;
+          
+          if (pointsToAward > 0) {
+            // Increment client points balance
+            currentClient.points_balance = (currentClient.points_balance || 0) + pointsToAward;
+            
+            // Increment session count
+            currentClient.total_sessions = (currentClient.total_sessions || 0) + 1;
+            
+            await currentClient.save();
+            
+            // Create points history entry
+            await PointsHistory.create({
+              clientId: currentClient._id,
+              appointmentId: appointment._id,
+              points: pointsToAward,
+              type: 'earned',
+              description: `Points earned from completed appointment`
+            });
+            
+            // Update appointment with points awarded
+            updateData.pointsAwarded = pointsToAward;
+            
+            // Check if max_sessions_before_reset is reached
+            if (membershipTier.max_sessions_before_reset && 
+                currentClient.total_sessions >= membershipTier.max_sessions_before_reset) {
+              console.warn(`Client ${currentClient._id} has reached max sessions (${membershipTier.max_sessions_before_reset}) for tier ${membershipTier.name}`);
+            }
+          }
+        }
+      }
+    }
+    
+    // Handle reverting points when status changes FROM completed
+    if (previousStatus === 'completed' && newStatus !== 'completed' && appointment.pointsAwarded > 0) {
+      const currentClient = await Client.findById(appointment.clientId);
+      
+      if (currentClient) {
+        // Revert points
+        currentClient.points_balance = Math.max(0, (currentClient.points_balance || 0) - appointment.pointsAwarded);
+        
+        // Revert session count
+        currentClient.total_sessions = Math.max(0, (currentClient.total_sessions || 0) - 1);
+        
+        await currentClient.save();
+        
+        // Delete points history entry for this appointment
+        await PointsHistory.deleteOne({ 
+          appointmentId: appointment._id, 
+          type: 'earned' 
+        });
+        
+        // Reset points awarded
+        updateData.pointsAwarded = 0;
+      }
+    }
+
     const updatedAppointment = await Appointment.findByIdAndUpdate(
       req.params.id,
-      { status: req.body.status },
+      updateData,
       { new: true, runValidators: true }
     )
       .populate('clientId', 'name phone email')

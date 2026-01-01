@@ -140,6 +140,22 @@ const getPaymentById = async (req, res) => {
           { path: 'serviceVariationId', select: 'variationName timeDuration price commission' },
           { path: 'staffId', select: 'name specialization' }
         ]
+      })
+      .populate({
+        path: 'parent_appointment_ids',
+        populate: [
+          { 
+            path: 'clientId', 
+            select: 'name phone email membership_id points_balance total_sessions',
+            populate: {
+              path: 'membership_id',
+              select: 'name discount_percent points_per_session'
+            }
+          },
+          { path: 'baseServiceId', select: 'name category' },
+          { path: 'serviceVariationId', select: 'variationName timeDuration price commission' },
+          { path: 'staffId', select: 'name specialization' }
+        ]
       });
     
     if (!payment) {
@@ -610,7 +626,8 @@ const combinePayments = async (req, res) => {
       discount: totalDiscount,
       payable_amount: totalPayable,
       status: payments.every(p => p.status === 'paid') ? 'paid' : 'pending',
-      notes: `Combined payment from ${payments.length} payments. Appointments: ${appointmentIds.join(', ')}. ${notes || ''}`
+      notes: `Combined payment from ${payments.length} payments. Appointments: ${appointmentIds.join(', ')}. ${notes || ''}`,
+      parent_appointment_ids: appointmentIds.map(id => new mongoose.Types.ObjectId(id))
     };
     
     const combinedPayment = await Payment.create(combinedPaymentData);
@@ -638,6 +655,15 @@ const combinePayments = async (req, res) => {
     const populatedPayment = await Payment.findById(combinedPayment._id)
       .populate({
         path: 'appointment_id',
+        populate: [
+          { path: 'clientId', select: 'name phone email' },
+          { path: 'baseServiceId', select: 'name category' },
+          { path: 'serviceVariationId', select: 'variationName timeDuration price' },
+          { path: 'staffId', select: 'name specialization' }
+        ]
+      })
+      .populate({
+        path: 'parent_appointment_ids',
         populate: [
           { path: 'clientId', select: 'name phone email' },
           { path: 'baseServiceId', select: 'name category' },

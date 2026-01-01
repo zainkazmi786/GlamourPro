@@ -10,21 +10,25 @@ const {
   getPopularServices,
   getTodayAppointmentsList
 } = require('../controllers/dashboardController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
 // All dashboard routes are protected
 router.use(protect);
 
-router.get('/today-revenue', getTodayRevenue);
+// Revenue routes - Manager only (Therapist cannot see revenue)
+router.get('/today-revenue', authorize('manager'), getTodayRevenue);
+router.get('/monthly-revenue', authorize('manager'), getMonthlyRevenue);
+router.get('/weekly-revenue', authorize('manager'), getWeeklyRevenue);
+
+// Statistics routes - All roles (filtered in controller)
 router.get('/active-clients', getActiveClients);
 router.get('/today-appointments', getTodayAppointments);
-router.get('/monthly-revenue', getMonthlyRevenue);
 router.get('/staff-on-duty', getStaffOnDuty);
-router.get('/weekly-revenue', getWeeklyRevenue);
 router.get('/popular-services', getPopularServices);
 router.get('/today-appointments-list', getTodayAppointmentsList);
 
 module.exports = router;
+
 
 
 

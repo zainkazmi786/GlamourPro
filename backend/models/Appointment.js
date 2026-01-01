@@ -80,6 +80,16 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: null
+  },
+  pointsUsed: {
+    type: Number,
+    default: 0,
+    min: [0, 'Points used cannot be negative']
+  },
+  pointsAwarded: {
+    type: Number,
+    default: 0,
+    min: [0, 'Points awarded cannot be negative']
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt fields

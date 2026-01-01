@@ -5,10 +5,13 @@ const {
   getAllConfigs,
   getConfigByStaff
 } = require('../controllers/monthlySalaryConfigController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
 // All salary config routes are protected
 router.use(protect);
+
+// Salary config routes - Only Receptionist and Manager can access
+router.use(authorize('receptionist', 'manager'));
 
 router.route('/')
   .get(getAllConfigs)
@@ -17,6 +20,7 @@ router.route('/')
 router.get('/staff/:staffId', getConfigByStaff);
 
 module.exports = router;
+
 
 
 

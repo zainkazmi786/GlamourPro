@@ -50,11 +50,61 @@ const updateBusinessSettings = async (req, res) => {
       settings = new BusinessSettings({});
     }
 
-    // Update business information
+    // Validation functions
+    const validateEmail = (email) => {
+      if (!email) return true; // Allow empty
+      // Only alphanumeric, @, ., -, _ allowed
+      const emailRegex = /^[a-zA-Z0-9@._-]+$/;
+      return emailRegex.test(email);
+    };
+
+    const validateWebsite = (website) => {
+      if (!website) return true; // Allow empty
+      // Only alphanumeric, dots, hyphens allowed
+      const websiteRegex = /^[a-zA-Z0-9.-]+$/;
+      return websiteRegex.test(website);
+    };
+
+    const validatePakistaniPhone = (phone) => {
+      if (!phone) return true; // Allow empty
+      // Pakistani phone formats: +92 300 1234567, 0300 1234567, 300-1234567, 03001234567, +923001234567
+      const phoneRegex = /^(\+92|0)?[\s-]?[0-9]{3}[\s-]?[0-9]{7}$/;
+      return phoneRegex.test(phone.replace(/\s+/g, '').replace(/-/g, ''));
+    };
+
+    // Update business information with validation
     if (businessName !== undefined) settings.businessName = businessName;
-    if (contactPhone !== undefined) settings.contactPhone = contactPhone;
-    if (email !== undefined) settings.email = email;
-    if (website !== undefined) settings.website = website;
+    
+    if (contactPhone !== undefined) {
+      if (!validatePakistaniPhone(contactPhone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid phone number format. Please use Pakistani phone number format (e.g., +92 300 1234567 or 0300 1234567)'
+        });
+      }
+      settings.contactPhone = contactPhone;
+    }
+    
+    if (email !== undefined) {
+      if (!validateEmail(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email contains invalid characters. Only alphanumeric characters, @, ., -, and _ are allowed.'
+        });
+      }
+      settings.email = email;
+    }
+    
+    if (website !== undefined) {
+      if (!validateWebsite(website)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Website name contains invalid characters. Only alphanumeric characters, dots, and hyphens are allowed.'
+        });
+      }
+      settings.website = website;
+    }
+    
     if (address !== undefined) settings.address = address;
 
     // Update financial settings
@@ -96,6 +146,7 @@ module.exports = {
   getBusinessSettings,
   updateBusinessSettings
 };
+
 
 
 

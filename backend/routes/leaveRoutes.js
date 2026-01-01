@@ -8,11 +8,12 @@ const {
   updateLeave,
   deleteLeave
 } = require('../controllers/leaveController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
 // All leave routes are protected
 router.use(protect);
 
+// All roles can view and create leaves (filtered in controller)
 router.route('/')
   .get(getAllLeaves)
   .post(createLeave);
@@ -20,11 +21,13 @@ router.route('/')
 router.get('/staff/:staffId', getLeavesByStaff);
 router.get('/quota/:staffId', getLeaveQuota);
 
+// Update and delete - Only Manager can approve/delete
 router.route('/:id')
-  .put(updateLeave)
-  .delete(deleteLeave);
+  .put(authorize('manager'), updateLeave) // Only Manager can approve
+  .delete(authorize('manager'), deleteLeave);
 
 module.exports = router;
+
 
 
 
