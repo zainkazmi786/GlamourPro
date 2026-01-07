@@ -38,3 +38,5 @@ pointsHistorySchema.index({ clientId: 1, createdAt: -1 });
 pointsHistorySchema.index({ appointmentId: 1 });
 
 module.exports = mongoose.model('PointsHistory', pointsHistorySchema);
+
+

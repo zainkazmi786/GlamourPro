@@ -172,7 +172,7 @@ const createClient = async (req, res) => {
       const field = Object.keys(error.keyPattern)[0];
       return res.status(400).json({
         success: false,
-        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`
+        message: `${field.replace(/_/g, ' ').charAt(0).toUpperCase() + field.replace(/_/g, ' ').slice(1)} already exists`
       });
     }
     if (error.name === 'ValidationError') {

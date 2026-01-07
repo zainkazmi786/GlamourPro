@@ -29,3 +29,5 @@ sessionResetLogSchema.index({ clientId: 1, resetDate: -1 });
 sessionResetLogSchema.index({ resetBy: 1 });
 
 module.exports = mongoose.model('SessionResetLog', sessionResetLogSchema);
+
+

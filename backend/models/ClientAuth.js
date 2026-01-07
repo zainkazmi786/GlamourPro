@@ -69,3 +69,5 @@ clientAuthSchema.methods.generateToken = function() {
 };
 
 module.exports = mongoose.model('ClientAuth', clientAuthSchema);
+
+

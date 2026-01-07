@@ -154,10 +154,126 @@ const updatePassword = async (req, res) => {
   }
 };
 
+// @desc    Forgot password - verify email and phone
+// @route   POST /api/auth/forgot-password
+// @access  Public
+const forgotPassword = async (req, res) => {
+  try {
+    const { email, phone } = req.body;
+
+    // Validate input
+    if (!email || !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide both email and phone number'
+      });
+    }
+
+    // Find staff by email and phone
+    const staff = await Staff.findOne({ 
+      email: email.toLowerCase().trim(),
+      phone: phone.trim()
+    });
+
+    if (!staff) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with the provided email and phone number'
+      });
+    }
+
+    // Check if staff is active
+    if (staff.status !== 'Active') {
+      return res.status(401).json({
+        success: false,
+        message: 'Account is not active. Please contact administrator.'
+      });
+    }
+
+    // Return success (in a real app, you would send a reset token via email)
+    // For now, we'll just verify and allow password reset
+    res.status(200).json({
+      success: true,
+      message: 'Email and phone verified. You can now reset your password.',
+      staffId: staff._id
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing forgot password request',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Reset password
+// @route   POST /api/auth/reset-password
+// @access  Public
+const resetPassword = async (req, res) => {
+  try {
+    const { email, phone, newPassword } = req.body;
+
+    // Validate input
+    if (!email || !phone || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email, phone number, and new password'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters'
+      });
+    }
+
+    // Find staff by email and phone
+    const staff = await Staff.findOne({ 
+      email: email.toLowerCase().trim(),
+      phone: phone.trim()
+    }).select('+password');
+
+    if (!staff) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with the provided email and phone number'
+      });
+    }
+
+    // Check if staff is active
+    if (staff.status !== 'Active') {
+      return res.status(401).json({
+        success: false,
+        message: 'Account is not active. Please contact administrator.'
+      });
+    }
+
+    // Update password (will be hashed by pre-save hook)
+    staff.password = newPassword;
+    await staff.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successfully. You can now login with your new password.'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error resetting password',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   login,
   getMe,
-  updatePassword
+  updatePassword,
+  forgotPassword,
+  resetPassword
 };
 
 

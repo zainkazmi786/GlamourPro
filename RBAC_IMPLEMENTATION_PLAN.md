@@ -231,3 +231,5 @@ export const useRoleAccess = () => {
 - [ ] Can access settings
 - [ ] Can approve leaves
 - [ ] Can view all financial data
+
+

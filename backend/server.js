@@ -25,6 +25,8 @@ const clientPortalRoutes = require('./routes/clientPortalRoutes');
 const reportsRoutes = require('./routes/reportsRoutes')
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require("path");
+
 
 // Load environment variables
 dotenv.config();
@@ -51,11 +53,13 @@ const corsOptions = {
 app.use(cors(corsOptions)); // Use cors package for better handling
 app.use(express.json()); // Body parser for JSON
 app.use(express.urlencoded({ extended: true })); // Body parser for URL-encoded
+app.use(express.static(path.join(__dirname, "dist")));
 
 // Serve uploads folder for PDF bills
 app.use('/uploads', express.static('uploads'));
 
 // Routes
+
 app.get('/', (req, res) => {
   res.send('Server is running and attempting to connect to MongoDB...');
 });
@@ -82,6 +86,9 @@ app.use('/api/company-closures', companyClosureRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/business-settings', businessSettingsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
 
 // Initialize Socket.io
 const io = new Server(server, {

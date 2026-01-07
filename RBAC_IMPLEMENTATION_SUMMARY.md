@@ -103,3 +103,5 @@
 - Client personal data (phone, email) is removed from appointment responses for Therapist
 - Revenue API calls are disabled for Therapist (won't make requests)
 - All route protection is enforced on backend - frontend is for UX only
+
+
