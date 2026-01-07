@@ -53,18 +53,11 @@ const corsOptions = {
 app.use(cors(corsOptions)); // Use cors package for better handling
 app.use(express.json()); // Body parser for JSON
 app.use(express.urlencoded({ extended: true })); // Body parser for URL-encoded
-app.use(express.static(path.join(__dirname, "dist")));
 
 // Serve uploads folder for PDF bills
 app.use('/uploads', express.static('uploads'));
 
-// Routes
-
-app.get('/', (req, res) => {
-  res.send('Server is running and attempting to connect to MongoDB...');
-});
-
-// API Routes
+// API Routes - Must be defined BEFORE static file serving and catch-all route
 // Mount client portal routes FIRST to ensure public routes (register/login) are accessible
 app.use('/api/client-portal', clientPortalRoutes);
 app.use('/api/auth', authRoutes);
@@ -86,7 +79,24 @@ app.use('/api/company-closures', companyClosureRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/business-settings', businessSettingsRoutes);
 app.use('/api/reports', reportsRoutes);
+
+// Serve static files from dist folder (for production build)
+app.use(express.static(path.join(__dirname, "dist")));
+
+// Catch-all handler: send back React's index.html file for any non-API routes
+// This ensures client-side routing works when refreshing pages
+// Note: This must be after all API routes and static file serving
 app.use((req, res) => {
+  // Skip if it's an API route (shouldn't reach here if API routes are properly defined)
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({
+      success: false,
+      message: 'API endpoint not found'
+    });
+  }
+  
+  // For all other routes, serve index.html (SPA routing)
+  // express.static will have already tried to serve static files first
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
