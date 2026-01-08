@@ -69,8 +69,31 @@ module.exports = (io) => {
       socket.join(`chat:${chat._id}`);
     });
 
-    // Emit online status to all relevant chats
+    // For each chat, send online status both ways:
+    // 1. Notify others that this user is online
+    // 2. Notify this user about other online users in the chat
     chats.forEach(async (chat) => {
+      // Get all members of this chat
+      const chatDoc = await Chat.findById(chat._id).select('members');
+      if (!chatDoc) return;
+
+      // Find all online users who are members of this chat
+      const chatMemberIds = chatDoc.members.map(m => m.userId.toString());
+      const onlineMembersInChat = chatMemberIds.filter(memberId => 
+        onlineUsers.has(memberId) && memberId !== staffId
+      );
+
+      // Notify the newly connected user about other online members
+      if (onlineMembersInChat.length > 0) {
+        onlineMembersInChat.forEach(onlineMemberId => {
+          socket.emit('user_online', {
+            userId: onlineMemberId,
+            chatId: chat._id
+          });
+        });
+      }
+
+      // Notify other members that this user is now online
       socket.to(`chat:${chat._id}`).emit('user_online', {
         userId: staffId,
         chatId: chat._id

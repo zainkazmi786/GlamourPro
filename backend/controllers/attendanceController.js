@@ -25,6 +25,7 @@ const importAttendance = async (req, res) => {
       });
     }
 
+    // Parse dates - handle both ISO strings and date objects
     const start = new Date(startDate);
     const end = new Date(endDate);
     
@@ -42,14 +43,36 @@ const importAttendance = async (req, res) => {
       });
     }
 
-    // Normalize start and end dates to start of day for inclusive comparison
-    const startNormalized = new Date(start);
-    startNormalized.setHours(0, 0, 0, 0);
+    // Normalize start and end dates to start/end of day for inclusive comparison (UTC to avoid timezone issues)
+    // Extract year, month, day from the parsed dates using local date methods (then convert to UTC)
+    // This ensures we use the actual calendar date regardless of timezone
+    const startYear = start.getFullYear();
+    const startMonth = start.getMonth();
+    const startDay = start.getDate();
     
-    const endNormalized = new Date(end);
-    endNormalized.setHours(23, 59, 59, 999); // End of day to include all records on end date
+    const endYear = end.getFullYear();
+    const endMonth = end.getMonth();
+    const endDay = end.getDate();
     
-    console.log(`Date range (inclusive): ${startNormalized.toISOString()} to ${endNormalized.toISOString()}`);
+    const startNormalized = new Date(Date.UTC(
+      startYear,
+      startMonth,
+      startDay,
+      0, 0, 0, 0
+    ));
+    
+    const endNormalized = new Date(Date.UTC(
+      endYear,
+      endMonth,
+      endDay,
+      23, 59, 59, 999
+    )); // End of day to include all records on end date
+    
+    console.log(`\n=== DATE RANGE FILTER ===`);
+    console.log(`Input - Start date: ${startDate}, End date: ${endDate}`);
+    console.log(`Parsed - Start: ${start.toISOString()}, End: ${end.toISOString()}`);
+    console.log(`Normalized (UTC) - Start: ${startNormalized.toISOString()}, End: ${endNormalized.toISOString()}`);
+    console.log(`Date range (inclusive): ${startNormalized.toISOString().split('T')[0]} to ${endNormalized.toISOString().split('T')[0]}`);
 
     // Parse CSV file
     const csvData = [];
@@ -158,26 +181,50 @@ const importAttendance = async (req, res) => {
         continue;
       }
 
-      const attendanceDate = new Date(`${year}-${month}-${day}`);
+      // Parse date using UTC to avoid timezone issues
+      // CSV format: MM/DD/YYYY, so we need to parse it correctly
+      const monthNum = parseInt(month, 10);
+      const dayNum = parseInt(day, 10);
+      const yearNum = parseInt(year, 10);
       
-      if (isNaN(attendanceDate.getTime())) {
+      if (isNaN(monthNum) || isNaN(dayNum) || isNaN(yearNum) || 
+          monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) {
+        const errorMsg = `Row ${rowNumber}: Invalid date values - Month: ${month}, Day: ${day}, Year: ${year}`;
+        console.error(`  ❌ ${errorMsg}`);
+        errors.push(errorMsg);
+        continue;
+      }
+      
+      // Create date in UTC to avoid timezone issues
+      // Note: month is 0-indexed in Date.UTC, so monthNum - 1
+      const normalizedDate = new Date(Date.UTC(
+        yearNum,
+        monthNum - 1, // Month is 0-indexed
+        dayNum,
+        0, 0, 0, 0
+      ));
+      
+      if (isNaN(normalizedDate.getTime())) {
         const errorMsg = `Row ${rowNumber}: Invalid date - Could not create date from "${year}-${month}-${day}"`;
         console.error(`  ❌ ${errorMsg}`);
         errors.push(errorMsg);
         continue;
       }
       
-      // Normalize date to start of day for comparison
-      const normalizedDate = new Date(attendanceDate);
-      normalizedDate.setHours(0, 0, 0, 0);
+      // Get date-only timestamps for comparison (ignore time)
+      const dateTimestamp = normalizedDate.getTime();
+      const startTimestamp = startNormalized.getTime();
+      const endTimestamp = endNormalized.getTime();
       
       // Check if date is within range (inclusive: >= start and <= end)
-      if (normalizedDate < startNormalized || normalizedDate > endNormalized) {
-        const skipMsg = `Row ${rowNumber}: Date ${dateStr} is outside the specified range (${startDate} to ${endDate})`;
+      if (dateTimestamp < startTimestamp || dateTimestamp > endTimestamp) {
+        const skipMsg = `Row ${rowNumber}: Date ${dateStr} (${normalizedDate.toISOString().split('T')[0]}) is outside the specified range (${startNormalized.toISOString().split('T')[0]} to ${endNormalized.toISOString().split('T')[0]})`;
         console.log(`  ⏭️  ${skipMsg}`);
         skipped.push(skipMsg);
         continue;
       }
+      
+      console.log(`  ✓ Date ${dateStr} (${normalizedDate.toISOString().split('T')[0]}) is within range`);
 
       const key = `${empId}_${normalizedDate.toISOString()}`;
 
@@ -194,10 +241,23 @@ const importAttendance = async (req, res) => {
       }
 
       const attendance = attendanceMap.get(key);
-      const fullDateTime = new Date(`${year}-${month}-${day}T${timeOnly}`);
+      
+      // Parse time (format: HH:MM:SS)
+      const [hours, minutes, seconds] = timeOnly.split(':').map(v => parseInt(v, 10) || 0);
+      
+      // Create full datetime in UTC using the normalized date
+      const fullDateTime = new Date(Date.UTC(
+        yearNum,
+        monthNum - 1, // Month is 0-indexed
+        dayNum,
+        hours,
+        minutes,
+        seconds || 0,
+        0
+      ));
       
       if (isNaN(fullDateTime.getTime())) {
-        const errorMsg = `Row ${rowNumber}: Invalid datetime - Could not create datetime from "${year}-${month}-${day}T${timeOnly}"`;
+        const errorMsg = `Row ${rowNumber}: Invalid datetime - Could not create datetime from "${year}-${month}-${day} ${timeOnly}"`;
         console.error(`  ❌ ${errorMsg}`);
         errors.push(errorMsg);
         continue;
