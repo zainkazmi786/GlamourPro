@@ -588,18 +588,75 @@ const removeMember = async (req, res) => {
       });
     }
 
-    // Cannot remove admin
-    if (chat.isAdmin(memberId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot remove admin from group'
+    const initialMemberCount = chat.members.length;
+    
+    // Handle special case: removing deleted staff (memberId is "deleted")
+    // This allows frontend to remove members with null userId or non-existent staff
+    if (memberId === 'deleted' || memberId === 'null') {
+      // Get all valid staff IDs to check against
+      const Staff = require('../models/Staff');
+      const validStaffIds = new Set();
+      const allStaff = await Staff.find({ status: 'Active' }).select('_id');
+      allStaff.forEach(staff => validStaffIds.add(staff._id.toString()));
+      
+      // Remove members where userId is null OR the staff doesn't exist or is not active
+      chat.members = chat.members.filter(member => {
+        if (!member || !member.userId) {
+          return false; // Remove null members
+        }
+        
+        // Get the userId as string (whether it's populated or not)
+        const userIdStr = typeof member.userId === 'object' && member.userId !== null
+          ? member.userId._id.toString()
+          : member.userId.toString();
+        
+        // Check if staff exists and is active
+        if (!validStaffIds.has(userIdStr)) {
+          return false; // Remove deleted/inactive staff
+        }
+        
+        return true; // Keep valid members
+      });
+      
+      if (chat.members.length === initialMemberCount) {
+        return res.status(404).json({
+          success: false,
+          message: 'No deleted staff members found to remove'
+        });
+      }
+    } else {
+      // Normal case: remove specific member by ID
+      // Cannot remove admin
+      if (chat.isAdmin(memberId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot remove admin from group'
+        });
+      }
+
+      // Remove member by matching ID, handling both populated objects and string IDs
+      chat.members = chat.members.filter((member) => {
+        if (!member || !member.userId) {
+          // Skip members with null userId (deleted staff) - they need to be removed with 'deleted' ID
+          return true;
+        }
+        
+        // Normal case: member has userId
+        const memberUserId = typeof member.userId === 'object' && member.userId !== null
+          ? member.userId._id.toString()
+          : member.userId.toString();
+        return memberUserId !== memberId.toString();
       });
     }
-
-    // Remove member
-    chat.members = chat.members.filter(
-      member => member.userId.toString() !== memberId.toString()
-    );
+    
+    // Check if any member was actually removed
+    if (chat.members.length === initialMemberCount) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member not found in chat'
+      });
+    }
+    
     await chat.save();
 
     // Populate and return
@@ -663,11 +720,11 @@ const leaveChat = async (req, res) => {
       });
     }
 
-    // Cannot leave if you're the only admin
-    if (chat.isAdmin(staffId) && chat.admins.length === 1) {
+    // Cannot leave if you're an admin
+    if (chat.isAdmin(staffId)) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot leave group as the only admin. Please delete the group or assign another admin.'
+        message: 'Admins cannot leave the group. Please delete the group or remove your admin status first.'
       });
     }
 

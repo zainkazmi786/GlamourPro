@@ -97,7 +97,8 @@ const importAttendance = async (req, res) => {
 
     // Process attendance data
     const attendanceMap = new Map(); // Key: biometric_emp_id_date, Value: attendance data
-    const errors = [];
+    const errors = []; // Real errors that prevent record creation
+    const warnings = []; // Warnings that don't prevent import (e.g., unknown states, skipped records)
     const skipped = [];
     let processed = 0;
     let rowNumber = 0;
@@ -280,9 +281,10 @@ const importAttendance = async (req, res) => {
           console.log(`  ✓ Overtime-out recorded: ${fullDateTime.toISOString()}`);
         }
       } else {
-        const errorMsg = `Row ${rowNumber}: Unknown attendance state "${state}" (expected 0, 1, or 5)`;
-        console.warn(`  ⚠️  ${errorMsg}`);
-        errors.push(errorMsg);
+        const warningMsg = `Row ${rowNumber}: Unknown attendance state "${state}" (expected 0, 1, or 5)`;
+        console.warn(`  ⚠️  ${warningMsg}`);
+        warnings.push(warningMsg);
+        // Don't add to errors - this is just a warning, record can still be processed
       }
 
       attendance.states.push({ state, time: fullDateTime });
@@ -435,11 +437,12 @@ const importAttendance = async (req, res) => {
     
     console.log(`\n=== IMPORT SUMMARY ===`);
     console.log(`Processed: ${processed}`);
-    console.log(`Errors: ${errors.length}`);
+    console.log(`Errors: ${errors.length} (real errors that prevented record creation)`);
+    console.log(`Warnings: ${warnings.length} (non-critical issues)`);
     console.log(`Duplicates: ${duplicateChecks.length}`);
     console.log(`Skipped: ${skipped.length}`);
     if (errors.length > 0) {
-      console.log(`\nError details:`);
+      console.log(`\nError details (real errors):`);
       errors.slice(0, 20).forEach((err, idx) => {
         console.log(`  ${idx + 1}. ${err}`);
       });
@@ -447,13 +450,60 @@ const importAttendance = async (req, res) => {
         console.log(`  ... and ${errors.length - 20} more errors`);
       }
     }
+    if (warnings.length > 0) {
+      console.log(`\nWarning details (non-critical):`);
+      warnings.slice(0, 10).forEach((warn, idx) => {
+        console.log(`  ${idx + 1}. ${warn}`);
+      });
+      if (warnings.length > 10) {
+        console.log(`  ... and ${warnings.length - 10} more warnings`);
+      }
+    }
+
+    // Group similar errors together
+    const groupedErrors = [];
+    if (errors.length > 0) {
+      const errorMap = new Map();
+      errors.forEach(error => {
+        // Extract the base error message (remove specific IDs/values)
+        // Pattern: "Row X: Message" or "Staff not found for biometric ID: 'X'"
+        let baseMessage = error;
+        
+        // Remove row numbers and specific values to group similar errors
+        baseMessage = baseMessage.replace(/Row \d+: /, '');
+        // Handle both single and double quotes for biometric ID
+        baseMessage = baseMessage.replace(/biometric ID: "[^"]+"/, 'biometric ID');
+        baseMessage = baseMessage.replace(/biometric ID: '[^']+'/, 'biometric ID');
+        baseMessage = baseMessage.replace(/Date: \d{4}-\d{2}-\d{2}/, 'Date');
+        baseMessage = baseMessage.replace(/Emp ID: "[^"]+"/, 'Emp ID');
+        baseMessage = baseMessage.replace(/Time: "[^"]+"/, 'Time');
+        // Remove any remaining specific values in quotes or parentheses
+        baseMessage = baseMessage.replace(/\([^)]+\)/g, '');
+        
+        if (!errorMap.has(baseMessage)) {
+          errorMap.set(baseMessage, []);
+        }
+        errorMap.get(baseMessage).push(error);
+      });
+      
+      // Convert to grouped format: { message: base, count: number, examples: [first few examples] }
+      errorMap.forEach((errorList, baseMessage) => {
+        groupedErrors.push({
+          message: baseMessage.trim(),
+          count: errorList.length,
+          examples: errorList.slice(0, 3) // Show first 3 examples
+        });
+      });
+    }
 
     res.status(200).json({
       success: true,
       message: 'Attendance imported successfully',
       data: {
         processed,
-        errors: errors.length > 0 ? errors : undefined,
+        errors: errors.length > 0 ? errors : undefined, // Full error list for detailed view
+        groupedErrors: groupedErrors.length > 0 ? groupedErrors : undefined, // Grouped errors for display
+        warnings: warnings.length > 0 ? warnings : undefined, // Warnings that don't prevent import
         duplicates: duplicateChecks.length > 0 ? duplicateChecks : undefined,
         skipped: skipped.length > 0 ? skipped.slice(0, 10) : undefined // Limit skipped messages
       }

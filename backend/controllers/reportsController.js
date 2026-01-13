@@ -342,14 +342,24 @@ const getStaffPerformance = async (req, res) => {
     const period = req.query.period || 'month';
     const { startDate, endDate } = getDateRange(period);
 
+    const Staff = require('../models/Staff');
+
+    // First, get all active staff members excluding receptionist and manager roles
+    const allStaff = await Staff.find({
+      status: 'Active',
+      role: { $nin: ['receptionist', 'manager'] }
+    }).select('_id name role');
+
+    console.log(`getStaffPerformance - Found ${allStaff.length} active staff (excluding receptionist and manager)`);
+
     // Get staff performance from appointments
     // Try both 'staff' and 'staffs' collection names (MongoDB may use either)
-    let staffStats = [];
+    let appointmentStats = [];
     const collectionNames = ['staff', 'staffs'];
     
     for (const collectionName of collectionNames) {
       try {
-        staffStats = await Appointment.aggregate([
+        appointmentStats = await Appointment.aggregate([
           {
             $match: {
               startTime: { 
@@ -366,36 +376,11 @@ const getStaffPerformance = async (req, res) => {
               clients: { $addToSet: '$clientId' },
               revenue: { $sum: '$totalPrice' }
             }
-          },
-          {
-            $lookup: {
-              from: collectionName,
-              localField: '_id',
-              foreignField: '_id',
-              as: 'staff'
-            }
-          },
-          {
-            $unwind: {
-              path: '$staff',
-              preserveNullAndEmptyArrays: false // Don't allow null - ensures lookup worked
-            }
-          },
-          {
-            $project: {
-              name: '$staff.name',
-              clients: { $size: '$clients' },
-              revenue: 1
-            }
-          },
-          {
-            $sort: { revenue: -1 }
           }
-          // Removed $limit to show all staff members, not just top 10
         ]);
         
-        if (staffStats.length > 0) {
-          console.log(`getStaffPerformance - Successfully found ${staffStats.length} staff using collection "${collectionName}"`);
+        if (appointmentStats.length > 0) {
+          console.log(`getStaffPerformance - Successfully found ${appointmentStats.length} staff with appointments using collection "${collectionName}"`);
           break; // Success, stop trying other collection names
         }
       } catch (error) {
@@ -404,39 +389,34 @@ const getStaffPerformance = async (req, res) => {
       }
     }
 
-    console.log('getStaffPerformance - Final result count:', staffStats.length);
-    if (staffStats.length > 0) {
-      console.log('getStaffPerformance - All results:', JSON.stringify(staffStats, null, 2));
-    } else {
-      // Debug: Check if there are any completed appointments
-      const appointmentCount = await Appointment.countDocuments({
-        startTime: { 
-          $gte: startDate,
-          $lte: endDate
-        },
-        status: 'completed'
+    // Create a map of staffId -> performance data
+    const performanceMap = new Map();
+    appointmentStats.forEach(stat => {
+      performanceMap.set(stat._id.toString(), {
+        clients: stat.clients.length,
+        revenue: Math.round(stat.revenue * 100) / 100
       });
-      console.log('getStaffPerformance - Debug info:');
-      console.log('  - Completed appointments in period:', appointmentCount);
-      console.log('  - Date range:', { startDate, endDate });
-      
-      // Check unique staff IDs in appointments
-      const uniqueStaff = await Appointment.distinct('staffId', {
-        startTime: { 
-          $gte: startDate,
-          $lte: endDate
-        },
-        status: 'completed',
-        staffId: { $ne: null }
-      });
-      console.log('  - Unique staffIds in appointments:', uniqueStaff.length, uniqueStaff);
-    }
+    });
 
-    const performanceData = staffStats.map((stat) => ({
-      name: stat.name || 'Unknown Staff',
-      clients: stat.clients,
-      revenue: Math.round(stat.revenue * 100) / 100
-    }));
+    // Combine all staff with their performance data (or 0 if no appointments)
+    const performanceData = allStaff.map(staff => {
+      const staffId = staff._id.toString();
+      const perf = performanceMap.get(staffId) || { clients: 0, revenue: 0 };
+      
+      return {
+        name: staff.name || 'Unknown Staff',
+        clients: perf.clients,
+        revenue: perf.revenue
+      };
+    });
+
+    // Sort by revenue descending
+    performanceData.sort((a, b) => b.revenue - a.revenue);
+
+    console.log('getStaffPerformance - Final result count:', performanceData.length);
+    if (performanceData.length > 0) {
+      console.log('getStaffPerformance - All results:', JSON.stringify(performanceData, null, 2));
+    }
 
     res.status(200).json({
       success: true,

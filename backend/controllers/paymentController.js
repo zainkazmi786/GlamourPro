@@ -711,7 +711,7 @@ const generateBill = async (req, res) => {
       }
     }
     
-    // Get payments with full details
+    // Get payments with full details including parent appointments for combined payments
     const payments = await Payment.find({ _id: { $in: payment_ids } })
       .populate({
         path: 'appointment_id',
@@ -723,6 +723,18 @@ const generateBill = async (req, res) => {
               path: 'membership_id',
               select: 'name discount_percent'
             }
+          },
+          { path: 'baseServiceId', select: 'name category' },
+          { path: 'serviceVariationId', select: 'variationName timeDuration price' },
+          { path: 'staffId', select: 'name specialization' }
+        ]
+      })
+      .populate({
+        path: 'parent_appointment_ids',
+        populate: [
+          { 
+            path: 'clientId', 
+            select: 'name phone email address'
           },
           { path: 'baseServiceId', select: 'name category' },
           { path: 'serviceVariationId', select: 'variationName timeDuration price' },
@@ -795,8 +807,8 @@ const generateBill = async (req, res) => {
     // Table Header
     doc.fontSize(10).font('Helvetica-Bold');
     doc.text('Date', 50, yPosition);
-    doc.text('Service', 120, yPosition);
-    doc.text('Staff', 250, yPosition);
+    doc.text('Service', 120, yPosition, { width: 120 });
+    doc.text('Staff', 250, yPosition, { width: 90 });
     doc.text('Amount', 350, yPosition, { width: 60, align: 'right' });
     doc.text('Discount', 420, yPosition, { width: 60, align: 'right' });
     doc.text('Payable', 490, yPosition, { width: 60, align: 'right' });
@@ -812,29 +824,99 @@ const generateBill = async (req, res) => {
     let totalPayable = 0;
     
     for (const payment of payments) {
-      const apt = payment && payment.appointment_id ? payment.appointment_id : null;
-      const serviceVariation = apt && apt.serviceVariationId ? apt.serviceVariationId : null;
-      const staff = apt && apt.staffId ? apt.staffId : null;
-      const serviceName = serviceVariation && serviceVariation.variationName
-        ? serviceVariation.variationName
-        : 'N/A';
-      const staffName = staff && staff.name ? staff.name : 'N/A';
-      const paymentDate = payment.createdAt
-        ? new Date(payment.createdAt).toLocaleDateString()
-        : new Date().toLocaleDateString();
+      // Check if this is a combined payment
+      const isCombined = payment.parent_appointment_ids && payment.parent_appointment_ids.length > 0;
       
-      doc.text(paymentDate, 50, yPosition);
-      doc.text(serviceName, 120, yPosition, { width: 120 });
-      doc.text(staffName, 250, yPosition, { width: 90 });
-      doc.text(`PKR ${(payment.amount || 0).toFixed(2)}`, 350, yPosition, { width: 60, align: 'right' });
-      doc.text(`PKR ${(payment.discount || 0).toFixed(2)}`, 420, yPosition, { width: 60, align: 'right' });
-      doc.text(`PKR ${(payment.payable_amount || 0).toFixed(2)}`, 490, yPosition, { width: 60, align: 'right' });
-      
-      totalAmount += payment.amount || 0;
-      totalDiscount += payment.discount || 0;
-      totalPayable += payment.payable_amount || 0;
-      
-      yPosition += itemHeight;
+      if (isCombined) {
+        // For combined payments, show each child payment separately
+        const parentAppointments = payment.parent_appointment_ids.filter(apt => 
+          typeof apt === 'object' && apt !== null
+        );
+        
+        if (parentAppointments.length > 0) {
+          // Add a header row for combined payment
+          doc.font('Helvetica-Bold');
+          doc.text('Combined Payment', 50, yPosition, { width: 200 });
+          doc.text(`(${parentAppointments.length} payments)`, 250, yPosition, { width: 100 });
+          doc.font('Helvetica');
+          yPosition += itemHeight;
+          
+          // Show each child payment
+          for (let i = 0; i < parentAppointments.length; i++) {
+            const parentApt = parentAppointments[i];
+            const serviceVariation = parentApt && parentApt.serviceVariationId ? parentApt.serviceVariationId : null;
+            const staff = parentApt && parentApt.staffId ? parentApt.staffId : null;
+            const serviceName = serviceVariation && serviceVariation.variationName
+              ? serviceVariation.variationName
+              : 'N/A';
+            const staffName = staff && staff.name ? staff.name : 'N/A';
+            const aptDate = parentApt.startTime
+              ? new Date(parentApt.startTime).toLocaleDateString()
+              : new Date().toLocaleDateString();
+            
+            // Get appointment pricing details
+            const childAmount = parentApt.totalPrice || 0;
+            const childDiscount = (parentApt.membershipDiscount || 0) + (parentApt.staffCommission || 0);
+            const childPayable = childAmount - childDiscount;
+            
+            doc.text(`  ${i + 1}. ${aptDate}`, 50, yPosition);
+            doc.text(serviceName, 120, yPosition, { width: 120 });
+            doc.text(staffName, 250, yPosition, { width: 90 });
+            doc.text(`PKR ${childAmount.toFixed(2)}`, 350, yPosition, { width: 60, align: 'right' });
+            doc.text(`PKR ${childDiscount.toFixed(2)}`, 420, yPosition, { width: 60, align: 'right' });
+            doc.text(`PKR ${childPayable.toFixed(2)}`, 490, yPosition, { width: 60, align: 'right' });
+            
+            yPosition += itemHeight;
+            
+            if (yPosition > 700) {
+              doc.addPage();
+              yPosition = 50;
+            }
+          }
+          
+          // Add combined payment total row (subtotal)
+          doc.font('Helvetica-Bold');
+          doc.text('Subtotal:', 250, yPosition, { width: 90, align: 'right' });
+          doc.text(`PKR ${(payment.amount || 0).toFixed(2)}`, 350, yPosition, { width: 60, align: 'right' });
+          doc.text(`PKR ${(payment.discount || 0).toFixed(2)}`, 420, yPosition, { width: 60, align: 'right' });
+          doc.text(`PKR ${(payment.payable_amount || 0).toFixed(2)}`, 490, yPosition, { width: 60, align: 'right' });
+          doc.font('Helvetica');
+          yPosition += itemHeight + 5;
+          
+          // Add separator line
+          doc.moveTo(50, yPosition).lineTo(550, yPosition).stroke();
+          yPosition += 10;
+        }
+        
+        totalAmount += payment.amount || 0;
+        totalDiscount += payment.discount || 0;
+        totalPayable += payment.payable_amount || 0;
+      } else {
+        // Regular payment - show normally
+        const apt = payment && payment.appointment_id ? payment.appointment_id : null;
+        const serviceVariation = apt && apt.serviceVariationId ? apt.serviceVariationId : null;
+        const staff = apt && apt.staffId ? apt.staffId : null;
+        const serviceName = serviceVariation && serviceVariation.variationName
+          ? serviceVariation.variationName
+          : 'N/A';
+        const staffName = staff && staff.name ? staff.name : 'N/A';
+        const paymentDate = payment.createdAt
+          ? new Date(payment.createdAt).toLocaleDateString()
+          : new Date().toLocaleDateString();
+        
+        doc.text(paymentDate, 50, yPosition);
+        doc.text(serviceName, 120, yPosition, { width: 120 });
+        doc.text(staffName, 250, yPosition, { width: 90 });
+        doc.text(`PKR ${(payment.amount || 0).toFixed(2)}`, 350, yPosition, { width: 60, align: 'right' });
+        doc.text(`PKR ${(payment.discount || 0).toFixed(2)}`, 420, yPosition, { width: 60, align: 'right' });
+        doc.text(`PKR ${(payment.payable_amount || 0).toFixed(2)}`, 490, yPosition, { width: 60, align: 'right' });
+        
+        totalAmount += payment.amount || 0;
+        totalDiscount += payment.discount || 0;
+        totalPayable += payment.payable_amount || 0;
+        
+        yPosition += itemHeight;
+      }
       
       if (yPosition > 700) {
         doc.addPage();
